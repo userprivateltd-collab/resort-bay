@@ -1,50 +1,43 @@
-import sqlite3
 import os
 from datetime import datetime
 from flask import Flask, request, render_template_string, session, redirect, url_for, flash
 
 app = Flask(__name__)
-# Secret key is required for session management and flashing messages
 app.secret_key = "tamilnadu_heritage_super_secret_key"
 
-# --- 1. Database Initialization ---
-DB_FILE = 'resort_tamilnadu.db'
-
-def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def init_db():
-    conn = get_db_connection()
-    c = conn.cursor()
-    # Create tables
-    c.execute('''CREATE TABLE IF NOT EXISTS rooms 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, price INTEGER, desc TEXT, capacity INTEGER)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS bookings 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, room_id INTEGER, guest_name TEXT, 
-                  guest_email TEXT, checkin TEXT, checkout TEXT, total_price INTEGER, nights INTEGER)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS subscribers 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE)''')
-    
-    # Seed the database with Tamil Nadu rooms if empty
-    c.execute("SELECT COUNT(*) FROM rooms")
-    if c.fetchone()[0] == 0:
-        rooms_data = [
-            ("Chola Imperial Suite", 30000, "Spacious suite with a private temple-style courtyard, antique teakwood furniture, and panoramic views of the Bay of Bengal.", 4),
-            ("Nayakar Royal Deluxe", 15000, "Elegant room featuring authentic Chettinad pillars, woven silk drapery, and a private balcony overlooking the palm groves.", 2),
-            ("Coromandel Heritage Room", 8500, "Classic comfort infused with local art, featuring a modern en-suite and easy access to the Ayurvedic spa.", 2),
-            ("Pallava Family Villa", 25000, "A secluded two-bedroom villa with a private plunge pool, perfect for families seeking a serene coastal retreat.", 6)
-        ]
-        c.executemany("INSERT INTO rooms (name, price, desc, capacity) VALUES (?, ?, ?, ?)", rooms_data)
-        conn.commit()
-    conn.close()
-
-# Initialize DB on startup
-init_db()
+# --- 1. In-Memory Data Structure (Bypasses SQLite Write Blocks on Vercel) ---
+ROOMS = [
+    {
+        "id": 1,
+        "name": "Chola Imperial Suite",
+        "price": 30000,
+        "desc": "Spacious suite with a private temple-style courtyard, antique teakwood furniture, and panoramic views of the Bay of Bengal.",
+        "capacity": 4
+    },
+    {
+        "id": 2,
+        "name": "Nayakar Royal Deluxe",
+        "price": 15000,
+        "desc": "Elegant room featuring authentic Chettinad pillars, woven silk drapery, and a private balcony overlooking the palm groves.",
+        "capacity": 2
+    },
+    {
+        "id": 3,
+        "name": "Coromandel Heritage Room",
+        "price": 8500,
+        "desc": "Classic comfort infused with local art, featuring a modern en-suite and easy access to the Ayurvedic spa.",
+        "capacity": 2
+    },
+    {
+        "id": 4,
+        "name": "Pallava Family Villa",
+        "price": 25000,
+        "desc": "A secluded two-bedroom villa with a private plunge pool, perfect for families seeking a serene coastal retreat.",
+        "capacity": 6
+    }
+]
 
 # --- 2. Master HTML Template ---
-# This template uses conditional rendering ({% if page == '...' %}) to serve different pages
 MASTER_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -61,53 +54,35 @@ MASTER_TEMPLATE = """
             --text-light: #fff;
         }
         body { font-family: 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 0; background-color: var(--bg-light); color: var(--text-dark); line-height: 1.6; }
-        
-        /* Navigation & Header */
         header { background: var(--primary); color: var(--text-light); padding: 1.5rem 2rem; display: flex; justify-content: space-between; align-items: center; }
         header h1 { margin: 0; font-size: 1.8rem; font-weight: 300; letter-spacing: 2px; }
         .nav-links a { color: var(--text-light); text-decoration: none; margin-left: 20px; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
-        
-        /* Hero Section */
         .hero { background: linear-gradient(rgba(0,51,78,0.7), rgba(0,51,78,0.7)), url('https://images.unsplash.com/photo-1585501869372-df7eb58dbdb9?auto=format&fit=crop&w=1920&q=80') center/cover; color: white; padding: 100px 20px; text-align: center; }
         .hero h2 { font-size: 3.5rem; margin-bottom: 10px; font-family: 'Georgia', serif; font-weight: normal; }
         .hero p { font-size: 1.2rem; letter-spacing: 2px; margin-bottom: 40px; }
-        
-        /* Search Bar */
         .search-bar { background: white; padding: 20px; border-radius: 4px; display: inline-flex; gap: 15px; flex-wrap: wrap; justify-content: center; align-items: center; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
         .search-bar input, .search-bar select { padding: 15px; border: 1px solid #ddd; border-radius: 2px; font-size: 1rem; outline: none; }
         .btn { background: var(--accent); color: var(--primary); border: none; padding: 15px 30px; font-size: 1rem; font-weight: bold; text-transform: uppercase; cursor: pointer; transition: 0.3s; text-decoration: none; display: inline-block; }
         .btn:hover { background: #b5952f; color: white; }
-        
-        /* Alerts / Flashes */
         .flashes { max-width: 800px; margin: 20px auto; list-style: none; padding: 0; }
         .flashes li { padding: 15px; background: #d4edda; color: #155724; border: 1px solid #c3e6cb; border-radius: 4px; text-align: center; margin-bottom: 10px; font-weight: bold; }
         .flashes li.error { background: #f8d7da; color: #721c24; border-color: #f5c6cb; }
-
-        /* Container & Grids */
         .container { max-width: 1200px; margin: 40px auto; padding: 0 20px; }
         .section-title { text-align: center; font-family: 'Georgia', serif; color: var(--primary); font-size: 2.5rem; margin-bottom: 40px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; }
-        
-        /* Cards */
         .card { background: white; padding: 30px; border-radius: 4px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); text-align: center; border-bottom: 3px solid var(--accent); transition: transform 0.3s; }
         .card:hover { transform: translateY(-5px); }
         .card h3 { color: var(--primary); font-family: 'Georgia', serif; font-size: 1.5rem; margin-top: 0; }
         .price { font-size: 1.8rem; font-weight: bold; color: var(--primary); margin: 15px 0; }
         .price span { font-size: 0.9rem; color: #777; font-weight: normal; }
-        
-        /* Stats Section */
         .stats { display: flex; justify-content: space-around; background: white; padding: 40px 20px; border-top: 1px solid #eee; border-bottom: 1px solid #eee; flex-wrap: wrap; text-align: center; }
         .stat-item h4 { font-size: 2.5rem; color: var(--primary); margin: 0; font-family: 'Georgia', serif; }
         .stat-item p { text-transform: uppercase; letter-spacing: 1px; font-size: 0.8rem; color: #666; margin-top: 5px; }
-
-        /* Forms */
         .booking-form { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 4px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
         .form-group { margin-bottom: 20px; text-align: left; }
         .form-group label { display: block; margin-bottom: 8px; font-weight: bold; color: var(--primary); }
         .form-group input { width: 100%; padding: 12px; border: 1px solid #ccc; box-sizing: border-box; }
         .summary-box { background: var(--bg-light); padding: 20px; border-left: 4px solid var(--accent); margin-bottom: 20px; }
-
-        /* Footer */
         footer { background: var(--primary); color: white; padding: 60px 20px 20px; text-align: center; margin-top: 60px; }
         .footer-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 40px; max-width: 1200px; margin: 0 auto; text-align: left; }
         .footer-col h4 { color: var(--accent); font-family: 'Georgia', serif; font-size: 1.2rem; }
@@ -117,7 +92,6 @@ MASTER_TEMPLATE = """
     </style>
 </head>
 <body>
-
     <header>
         <h1>THE BAY RETREAT</h1>
         <div class="nav-links">
@@ -138,12 +112,10 @@ MASTER_TEMPLATE = """
       {% endif %}
     {% endwith %}
 
-    <!-- PAGE: HOME -->
     {% if page == 'home' %}
     <div class="hero">
         <h2>Let's Relax & Unwind By The Sea</h2>
         <p>DISCOVER THE SOUL OF TAMIL NADU</p>
-        
         <form class="search-bar" action="/search" method="POST">
             <select name="location" required>
                 <option value="" disabled selected>Select Location in Tamil Nadu</option>
@@ -151,8 +123,8 @@ MASTER_TEMPLATE = """
                 <option value="Mahabalipuram">Mahabalipuram Sands</option>
                 <option value="Kanyakumari">Kanyakumari Cape</option>
             </select>
-            <input type="date" name="checkin" required title="Check-in">
-            <input type="date" name="checkout" required title="Check-out">
+            <input type="date" name="checkin" required>
+            <input type="date" name="checkout" required>
             <button type="submit" class="btn">Search</button>
         </form>
     </div>
@@ -169,7 +141,6 @@ MASTER_TEMPLATE = """
         <p style="text-align: center; max-width: 700px; margin: 0 auto 40px; color: #666;">
             Immerse yourself in authentic South Indian hospitality. Our spaces are designed with ancient Chettinad architecture principles to let hospitality embrace you.
         </p>
-        
         <div class="grid">
             {% for room in rooms %}
             <div class="card">
@@ -177,14 +148,12 @@ MASTER_TEMPLATE = """
                 <p>{{ room.desc }}</p>
                 <p><strong>Capacity:</strong> Up to {{ room.capacity }} guests</p>
                 <div class="price">₹{{ "{:,}".format(room.price) }} <span>/ night</span></div>
-                <!-- Redirects to search to force date selection first -->
                 <a href="#accommodations" onclick="alert('Please select your dates in the search bar above to book.'); window.scrollTo(0,0);" class="btn" style="padding: 10px 20px; font-size: 0.9rem;">Check Availability</a>
             </div>
             {% endfor %}
         </div>
     </div>
 
-    <!-- PAGE: RESULTS -->
     {% elif page == 'results' %}
     <div class="container">
         <div class="summary-box">
@@ -193,7 +162,6 @@ MASTER_TEMPLATE = """
             <p><strong>Duration of stay:</strong> {{ session['nights'] }} night(s)</p>
             <a href="/" style="color: var(--primary); font-weight: bold;">← Change Search</a>
         </div>
-
         <h2 class="section-title">Select Your Heritage Stay</h2>
         <div class="grid">
             {% for room in rooms %}
@@ -210,7 +178,6 @@ MASTER_TEMPLATE = """
         </div>
     </div>
 
-    <!-- PAGE: CHECKOUT -->
     {% elif page == 'checkout' %}
     <div class="container">
         <h2 class="section-title">Complete Your Booking</h2>
@@ -221,7 +188,6 @@ MASTER_TEMPLATE = """
                 <p><strong>Dates:</strong> {{ session['checkin'] }} to {{ session['checkout'] }} ({{ session['nights'] }} nights)</p>
                 <h2 style="color: var(--primary); border-top: 1px solid #ddd; padding-top: 15px; margin-bottom: 0;">Total Amount: ₹{{ "{:,}".format(total_price) }}</h2>
             </div>
-
             <form action="/confirm/{{ room.id }}" method="POST">
                 <div class="form-group">
                     <label>Full Name</label>
@@ -257,7 +223,7 @@ MASTER_TEMPLATE = """
             </div>
         </div>
         <div class="copyright">
-            &copy; 2024 The Bay Retreat Tamil Nadu. All rights reserved. Code written by NIRANJAN.
+            &copy; 2026 The Bay Retreat Tamil Nadu. All rights reserved. Code optimized for Vercel Serverless.
         </div>
     </footer>
 </body>
@@ -268,11 +234,7 @@ MASTER_TEMPLATE = """
 
 @app.route("/")
 def index():
-    # Fetch all rooms from DB to display on home page
-    conn = get_db_connection()
-    rooms = conn.execute('SELECT * FROM rooms').fetchall()
-    conn.close()
-    return render_template_string(MASTER_TEMPLATE, page='home', rooms=rooms)
+    return render_template_string(MASTER_TEMPLATE, page='home', rooms=ROOMS)
 
 @app.route("/search", methods=["POST"])
 def search():
@@ -280,7 +242,6 @@ def search():
     checkin_str = request.form.get("checkin")
     checkout_str = request.form.get("checkout")
 
-    # Date Validation and Night Calculation
     try:
         checkin_date = datetime.strptime(checkin_str, "%Y-%m-%d")
         checkout_date = datetime.strptime(checkout_str, "%Y-%m-%d")
@@ -290,7 +251,6 @@ def search():
             flash("Check-out date must be after check-in date.", "error")
             return redirect(url_for('index'))
             
-        # Store search parameters in the user's session
         session['location'] = location
         session['checkin'] = checkin_str
         session['checkout'] = checkout_str
@@ -303,24 +263,16 @@ def search():
 
 @app.route("/results")
 def results():
-    # Ensure user has searched first
     if 'nights' not in session:
         return redirect(url_for('index'))
-        
-    conn = get_db_connection()
-    rooms = conn.execute('SELECT * FROM rooms').fetchall()
-    conn.close()
-    return render_template_string(MASTER_TEMPLATE, page='results', rooms=rooms)
+    return render_template_string(MASTER_TEMPLATE, page='results', rooms=ROOMS)
 
 @app.route("/checkout/<int:room_id>")
 def checkout(room_id):
     if 'nights' not in session:
         return redirect(url_for('index'))
 
-    conn = get_db_connection()
-    room = conn.execute('SELECT * FROM rooms WHERE id = ?', (room_id,)).fetchone()
-    conn.close()
-
+    room = next((r for r in ROOMS if r["id"] == room_id), None)
     if room is None:
         flash("Room not found.", "error")
         return redirect(url_for('results'))
@@ -334,48 +286,22 @@ def confirm(room_id):
         return redirect(url_for('index'))
 
     guest_name = request.form.get("guest_name")
-    guest_email = request.form.get("guest_email")
-    
-    conn = get_db_connection()
-    room = conn.execute('SELECT * FROM rooms WHERE id = ?', (room_id,)).fetchone()
+    room = next((r for r in ROOMS if r["id"] == room_id), None)
     
     if room:
         total_price = room['price'] * session['nights']
-        
-        # Insert booking into database
-        conn.execute('''INSERT INTO bookings (room_id, guest_name, guest_email, checkin, checkout, total_price, nights) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                     (room_id, guest_name, guest_email, session['checkin'], session['checkout'], total_price, session['nights']))
-        conn.commit()
-        conn.close()
-        
-        # Clear session after successful booking
         session.clear()
-        
         flash(f"Booking Confirmed! Thank you, {guest_name}. Your reservation for the {room['name']} is secure. Total payable at resort: ₹{total_price:,}.", "success")
         return redirect(url_for('index'))
     else:
-        conn.close()
         flash("An error occurred processing your booking.", "error")
         return redirect(url_for('index'))
 
 @app.route("/subscribe", methods=["POST"])
 def subscribe():
     email = request.form.get("email")
-    conn = get_db_connection()
-    try:
-        conn.execute('INSERT INTO subscribers (email) VALUES (?)', (email,))
-        conn.commit()
-        flash(f"Success! {email} has been subscribed to our Tamil Nadu heritage newsletter.", "success")
-    except sqlite3.IntegrityError:
-        flash(f"The email {email} is already subscribed.", "error")
-    finally:
-        conn.close()
-        
+    flash(f"Success! {email} has been subscribed to our Tamil Nadu heritage newsletter.", "success")
     return redirect(url_for('index'))
 
-# --- 4. Run Application ---
 if __name__ == "__main__":
-    print("Database connected. Server starting...")
-    print("Open http://127.0.0.1:5000 in your web browser to test.")
     app.run(debug=True)
