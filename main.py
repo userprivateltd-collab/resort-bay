@@ -224,6 +224,7 @@ MASTER_TEMPLATE = """
         </div>
         <div class="copyright">
             &copy; 2026 The Bay Retreat Tamil Nadu. All rights reserved. Code optimized for web development,coded by NIRANJAN.
+            <h1> no AI used </h1>
         </div>
     </footer>
 </body>
