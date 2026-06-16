@@ -11,7 +11,7 @@ ROOMS = [
         "id": 1,
         "name": "Chola Imperial Suite",
         "price": 30000,
-        "desc": "Spacious suite with a private temple-style courtyard, antique teakwood furniture, and panoramic views of the Bay of Bengal.",
+        "desc": "Spacious suite with a private temple-style courtyard, antique teakwood furniture, and panoramic views of the Tamilnadu.",
         "capacity": 4
     },
     {
@@ -223,7 +223,7 @@ MASTER_TEMPLATE = """
             </div>
         </div>
         <div class="copyright">
-            &copy; 2026 The Bay Retreat Tamil Nadu. All rights reserved. Code optimized for Vercel Serverless.
+            &copy; 2026 The Bay Retreat Tamil Nadu. All rights reserved. Code optimized for web development,coded by NIRANJAN.
         </div>
     </footer>
 </body>
